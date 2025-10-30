@@ -1,0 +1,149 @@
+// ================================
+// 📌 ISD Attendance System (Final)
+// ================================
+
+// 1️⃣ Web App Entry Point
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('ISD Attendance System')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// 2️⃣ Record Attendance Function
+function recordAttendance(data) {
+  if (!data || !data.username) {
+    return { status: "error", message: "No Employee ID provided." };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const attendanceSheet = ss.getSheetByName("Raw Data");
+  const teamSheet = ss.getSheetByName("Team Members");
+
+  if (!attendanceSheet || !teamSheet) {
+    return { status: "error", message: "Required sheets not found." };
+  }
+
+  const teamLastRow = teamSheet.getLastRow();
+  let teamValues = [];
+  if (teamLastRow >= 2) {
+    teamValues = teamSheet.getRange(2, 1, teamLastRow - 1, 8).getValues();
+  }
+
+  // 🧭 Create a user map for quick lookup
+  const userMap = {};
+  teamValues.forEach(row => {
+    const username = (row[7] || "").toString().trim();
+    if (username) {
+      userMap[username.toLowerCase()] = {
+        Name: row[0] || "",
+        Organization: row[1] || "",
+        District: row[2] || "",
+        Section: row[3] || "",
+        Designation: row[4] || "",
+        Username: username
+      };
+    }
+  });
+
+  const usernameKey = data.username.trim().toLowerCase();
+  if (!userMap[usernameKey]) {
+    return { status: "error", message: "❌ You are not authorized to mark attendance." };
+  }
+
+  // 🕓 Date and Time Setup
+  const tz = "GMT+5";
+  const now = new Date();
+  const todayDate = Utilities.formatDate(now, tz, "dd-MMMM-yyyy"); // ✅ formatted
+  const timeString = Utilities.formatDate(now, tz, "HH:mm:ss");
+
+  const latitude = data.latitude || "";
+  const longitude = data.longitude || "";
+
+  // 🌍 Reverse Geocode → Address
+  let address = "";
+  try {
+    if (latitude && longitude) {
+      const response = Maps.newGeocoder().reverseGeocode(latitude, longitude);
+      if (response.status === "OK" && response.results && response.results.length > 0) {
+        address = response.results[0].formatted_address || "";
+      } else {
+        address = "Address not found";
+      }
+    }
+  } catch (e) {
+    address = "Unable to fetch address";
+  }
+
+  // 🔗 Create Google Maps Link
+  const mapLink = (latitude && longitude)
+    ? `=HYPERLINK("https://www.google.com/maps?q=${latitude},${longitude}","View Location")`
+    : "";
+
+  const details = userMap[usernameKey];
+  const attendanceData = attendanceSheet.getDataRange().getValues();
+
+  // 🚫 Prevent duplicate attendance for the same day
+  const duplicateEntry = attendanceData.some(row =>
+    row[0].toString().toLowerCase() === details.Username.toLowerCase() &&
+    Utilities.formatDate(new Date(row[1]), tz, "dd-MMMM-yyyy") === todayDate
+  );
+  if (duplicateEntry) {
+    return { status: "error", message: "⚠️ Attendance already marked for today!" };
+  }
+
+  // ✅ If "Present"
+  if (data.status === "Present") {
+    attendanceSheet.appendRow([
+      details.Username,
+      todayDate,      // ✅ formatted date
+      timeString,
+      latitude,
+      longitude,
+      address,
+      "Present",
+      mapLink
+    ]);
+  }
+
+  // ✅ If "Leave"
+  else if (data.status === "Leave") {
+    const from = new Date(data.fromDate);
+    const to = new Date(data.toDate);
+    if (to < from) {
+      return { status: "error", message: "⚠️ Invalid date range!" };
+    }
+
+    const leaveDates = [];
+    let current = new Date(from);
+    while (current <= to) {
+      leaveDates.push(Utilities.formatDate(new Date(current), tz, "dd-MMMM-yyyy"));
+      current.setDate(current.getDate() + 1);
+    }
+
+    const duplicateLeave = attendanceData.some(row =>
+      row[0].toString().toLowerCase() === details.Username.toLowerCase() &&
+      leaveDates.includes(Utilities.formatDate(new Date(row[1]), tz, "dd-MMMM-yyyy"))
+    );
+    if (duplicateLeave) {
+      return { status: "error", message: "⚠️ Attendance or leave already marked for this date range!" };
+    }
+
+    // Append each leave date
+    current = new Date(from);
+    while (current <= to) {
+      attendanceSheet.appendRow([
+        details.Username,
+        Utilities.formatDate(new Date(current), tz, "dd-MMMM-yyyy"), // ✅ formatted
+        "",
+        "",
+        "",
+        address || "N/A",
+        "Leave",
+        mapLink
+      ]);
+      current.setDate(current.getDate() + 1);
+    }
+  }
+
+  return { status: "success", message: "✅ Attendance recorded successfully!", details: details };
+}

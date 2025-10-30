@@ -32,5 +32,5 @@ Contributions are welcome!
 If you’d like to improve or add features, please **fork** this repository and create a **pull request**.
 
 ## 📧 Contact
-Created by [Your Name](https://www.linkedin.com/in/yourprofile)  
-For suggestions or collaboration: your.email@example.com
+Created by [Irfan Ahmed](https://www.linkedin.com/in/iahmedmande/)  
+For suggestions or collaboration: irfanahmedpas@gmail.com
